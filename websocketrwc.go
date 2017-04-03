@@ -92,7 +92,7 @@ func (c *Conn) write(messageType int, p []byte) (n int, err error) {
 	default:
 		err = c.ws.SetWriteDeadline(time.Now().Add(WriteTimeout))
 		if err == nil {
-			err = c.ws.WriteMessage(websocket.BinaryMessage, p)
+			err = c.ws.WriteMessage(messageType, p)
 		}
 	}
 	c.wmutex.Unlock()
