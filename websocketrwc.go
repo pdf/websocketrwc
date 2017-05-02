@@ -41,10 +41,44 @@ var (
 	PingInterval = (PongTimeout * 9) / 10
 )
 
+// safeBuffer adds thread-safety to *bytes.Buffer
+type safeBuffer struct {
+	buf *bytes.Buffer
+	sync.Mutex
+}
+
+// Read reads the next len(p) bytes from the buffer or until the buffer is drained.
+func (s *safeBuffer) Read(p []byte) (int, error) {
+	s.Lock()
+	defer s.Unlock()
+	return s.buf.Read(p)
+}
+
+// Write appends the contents of p to the buffer.
+func (s *safeBuffer) Write(p []byte) (int, error) {
+	s.Lock()
+	defer s.Unlock()
+	return s.buf.Write(p)
+}
+
+// Len returns the number of bytes of the unread portion of the buffer.
+func (s *safeBuffer) Len() int {
+	s.Lock()
+	defer s.Unlock()
+	return s.buf.Len()
+}
+
+// Reset resets the buffer to be empty.
+func (s *safeBuffer) Reset() {
+	s.Lock()
+	s.buf.Reset()
+	s.Unlock()
+}
+
 // Conn wraps gorilla websocket to provide io.ReadWriteCloser.
 type Conn struct {
 	ws     *websocket.Conn
-	buf    *bytes.Buffer
+	buf    *safeBuffer
 	done   chan struct{}
 	wmutex sync.Mutex
 	rmutex sync.Mutex
@@ -65,11 +99,11 @@ func (c *Conn) Read(p []byte) (n int, err error) {
 				_, r, err = c.ws.NextReader()
 			}
 		}
-		c.rmutex.Unlock()
 		if err != nil {
 			return n, err
 		}
 		_, err = io.Copy(c.buf, r)
+		c.rmutex.Unlock()
 		if err != nil {
 			return n, err
 		}
@@ -129,9 +163,16 @@ func (c *Conn) pinger() {
 			return
 		case <-ticker.C:
 			if _, err := c.write(websocket.PingMessage, []byte{}); err != nil {
-				c.Close()
+				_ = c.Close()
 			}
 		}
+	}
+}
+
+// newSafeBuffer instantiates a new safeBuffer
+func newSafeBuffer() *safeBuffer {
+	return &safeBuffer{
+		buf: bytes.NewBuffer(nil),
 	}
 }
 
@@ -147,7 +188,7 @@ func Upgrade(w http.ResponseWriter, r *http.Request, h http.Header, upgrader *we
 
 	conn := &Conn{
 		ws:   ws,
-		buf:  bytes.NewBuffer(nil),
+		buf:  newSafeBuffer(),
 		done: make(chan struct{}),
 	}
 
