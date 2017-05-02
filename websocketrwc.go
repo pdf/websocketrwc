@@ -90,6 +90,7 @@ func (c *Conn) Read(p []byte) (n int, err error) {
 		var r io.Reader
 		c.buf.Reset()
 		c.rmutex.Lock()
+		defer c.rmutex.Unlock()
 		select {
 		case <-c.done:
 			err = ErrClosing
@@ -103,7 +104,6 @@ func (c *Conn) Read(p []byte) (n int, err error) {
 			return n, err
 		}
 		_, err = io.Copy(c.buf, r)
-		c.rmutex.Unlock()
 		if err != nil {
 			return n, err
 		}
@@ -120,6 +120,7 @@ func (c *Conn) Write(p []byte) (n int, err error) {
 // write wraps the websocket writer.
 func (c *Conn) write(messageType int, p []byte) (n int, err error) {
 	c.wmutex.Lock()
+	defer c.wmutex.Unlock()
 	select {
 	case <-c.done:
 		err = ErrClosing
@@ -129,7 +130,6 @@ func (c *Conn) write(messageType int, p []byte) (n int, err error) {
 			err = c.ws.WriteMessage(messageType, p)
 		}
 	}
-	c.wmutex.Unlock()
 	if err == nil {
 		n = len(p)
 	}
